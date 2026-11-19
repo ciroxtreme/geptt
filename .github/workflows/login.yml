@@ -75,9 +75,9 @@ jobs:
 
       - name: Fast Setup Playwright & Dependencies
         run: |
-          pip install playwright playwright-stealth requests
+          pip install --no-cache-dir playwright playwright-stealth requests
           if [ ! -d ~/.cache/ms-playwright ] || [ -z "$(ls -A ~/.cache/ms-playwright 2>/dev/null)" ]; then
-            playwright install chromium --with-deps
+            playwright install chromium
           fi
 
       - name: Run Login & Relay Engine with Playwright
