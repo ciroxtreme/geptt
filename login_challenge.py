@@ -61,6 +61,7 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
     start_time = time.time()
     last_update_id = 0
     
+    # Inisialisasi offset getUpdates
     try:
         init_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
         init_req = urllib.request.urlopen(init_url, timeout=10)
@@ -72,8 +73,8 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
 
     while time.time() - start_time < timeout_sec:
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=5"
-            req = urllib.request.urlopen(url, timeout=10)
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=3"
+            req = urllib.request.urlopen(url, timeout=8)
             data = json.loads(req.read().decode())
             for upd in data.get("result", []):
                 last_update_id = upd["update_id"]
@@ -92,15 +93,16 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
                         send_telegram_msg(f"🎯 <b>[OTP DITERIMA!]</b> Kode {code} berhasil ditangkap!")
                         return code
         except Exception as e:
-            print(f"Polling update error: {e}")
+            # Cegah spam loop jika conflict/retry
+            time.sleep(3)
         time.sleep(2)
         
-    send_telegram_msg("❌ <b>[TIMEOUT]</b> Waktu tunggu OTP (3 menit) habis.")
+    send_telegram_msg("❌ <b>[TIMEOUT]</b> Waktu tunggu OTP habis.")
     return ""
 
 def main():
-    print("=== START CHATGPT LOGIN CHALLENGE & RELAY ===")
-    send_telegram_msg(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Stealth Chromium Browser menuju ChatGPT...")
+    print("=== START CHATGPT PLAYWRIGHT STEALTH RUNNER ===")
+    send_telegram_msg(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Playwright Chromium Stealth menuju ChatGPT...")
 
     session_file = "session_chatgpt.json"
     session_loaded = False
@@ -149,7 +151,7 @@ def main():
         page.screenshot(path="01_chatgpt_home.png")
         send_telegram_photo("01_chatgpt_home.png", "📸 <b>[TAHAP 1/5] Halaman Utama ChatGPT</b>\nStatus awal saat browser terbuka.")
 
-        # Cek apakah sudah login
+        # Cek apakah sudah login dari cookie yang ada
         is_logged_in = False
         try:
             composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
@@ -196,7 +198,7 @@ def main():
         page.screenshot(path="02_login_options.png")
         send_telegram_photo("02_login_options.png", "📸 <b>[TAHAP 2/5] Menu Opsi Login ChatGPT</b>")
 
-        # Step 3: Isi Email
+        # Step 3: Isi Email dengan Presisi
         email_input = None
         email_selectors = [
             "input[name='email']",
@@ -214,6 +216,7 @@ def main():
                 pass
 
         if not email_input:
+            # Jika ada tombol 'Continue with email'
             try:
                 cont_email = page.locator("button:has-text('email' i)")
                 if cont_email.count() > 0 and cont_email.first.is_visible(timeout=3000):
@@ -234,74 +237,104 @@ def main():
             return
 
         print(f"Mengisi email: {TARGET_EMAIL}")
+        email_input.click()
+        email_input.fill("")
         email_input.fill(TARGET_EMAIL)
         time.sleep(1)
 
         page.screenshot(path="03_email_filled.png")
-        send_telegram_photo("03_email_filled.png", f"📸 <b>[TAHAP 3/5] Email {TARGET_EMAIL} Terisi</b>\nMenekan tombol Continue...")
+        send_telegram_photo("03_email_filled.png", f"📸 <b>[TAHAP 3/5] Email {TARGET_EMAIL} Terisi</b>\nMenekan tombol Continue form email...")
 
-        # Tekan Continue / Lanjutkan
-        submit_btn = None
-        for bsel in ["button[type='submit']", "button:has-text('Continue')", "button:has-text('Lanjutkan')", "button:has-text('Next')"]:
-            try:
-                bloc = page.locator(bsel)
-                if bloc.count() > 0 and bloc.first.is_visible(timeout=3000):
-                    submit_btn = bloc.first
-                    break
-            except Exception:
-                pass
+        # TEKAN TOMBOL CONTINUE FORM EMAIL (Anti-Salah Pencet Phone!)
+        # Cari tombol Continue di dalam form yang sama atau tombol submit utama
+        submitted = False
+        try:
+            # Prioritas 1: submit button di dalam form email
+            form_submit = page.locator("form button[type='submit']").first
+            if form_submit.is_visible(timeout=2000):
+                form_submit.click()
+                submitted = True
+        except Exception:
+            pass
 
-        if submit_btn:
-            submit_btn.click()
-        else:
-            page.keyboard.press("Enter")
+        if not submitted:
+            # Prioritas 2: Tombol bertuliskan Continue yang BUKAN phone
+            btns = page.locator("button")
+            for idx in range(btns.count()):
+                b = btns.nth(idx)
+                try:
+                    txt = (b.inner_text() or "").strip()
+                    if txt in ["Continue", "Lanjutkan"] and "phone" not in txt.lower() and "telepon" not in txt.lower():
+                        b.click()
+                        submitted = True
+                        break
+                except Exception:
+                    pass
+
+        if not submitted:
+            # Fallback tekan Enter di input email
+            email_input.press("Enter")
 
         time.sleep(7)
 
+        # Foto wajib setelah submit email
         page.screenshot(path="04_after_email_submit.png")
-        send_telegram_photo("04_after_email_submit.png", "📸 <b>[TAHAP 4/5] Status Setelah Kirim Email</b>\nMemeriksa apakah form OTP atau challenge muncul...")
+        send_telegram_photo("04_after_email_submit.png", "📸 <b>[TAHAP 4/5] Status Halaman Setelah Submit Email</b>\nMenganalisis apakah form OTP email muncul...")
 
-        # Step 4: Cek form OTP / Kode
+        # Step 4: Deteksi Form Kode OTP yang Valid (ANTI-HALU)
+        # Form OTP yang sah HARUS berupa kode verifikasi email (BUKAN input nomor HP!)
         otp_field = None
+        
+        # Validasi teks halaman: Pastikan layar bukan berada di form nomor telepon
+        page_text = page.locator("body").inner_text().lower()
+        if "phone" in page_text and "code" not in page_text:
+            send_telegram_photo("04_after_email_submit.png", "❌ <b>[SALAH JALUR]</b> Layar ternyata membuka form Phone Number, bukan OTP Email. Membatalkan proses agar tidak halu.")
+            print("Error: stuck on phone page")
+            return
+
+        # Cek selector OTP email murni
         otp_selectors = [
-            "input[name='code']",
             "input[autocomplete='one-time-code']",
+            "input[name='code']",
             "input[placeholder*='code' i]",
             "input[placeholder*='kode' i]",
-            "input[maxlength='1']",
-            "input[type='number']",
-            "input[type='tel']"
+            "input[aria-label*='code' i]",
+            "input[aria-label*='digit' i]",
+            "input[maxlength='1']"
         ]
         for osel in otp_selectors:
             try:
                 oloc = page.locator(osel)
-                if oloc.count() > 0 and oloc.first.is_visible(timeout=5000):
+                if oloc.count() > 0 and oloc.first.is_visible(timeout=3000):
                     otp_field = oloc
                     break
             except Exception:
                 pass
 
+        # Jika ada tombol 'Email me a code' atau 'Send code'
         if not otp_field:
             try:
-                send_code_btn = page.locator("button:has-text('code' i), a:has-text('code' i), button:has-text('login code' i)")
-                if send_code_btn.count() > 0 and send_code_btn.first.is_visible(timeout=3000):
-                    send_code_btn.first.click()
-                    time.sleep(5)
-                    page.screenshot(path="04_after_email_submit.png")
-                    for osel in otp_selectors:
-                        oloc = page.locator(osel)
-                        if oloc.count() > 0 and oloc.first.is_visible(timeout=3000):
-                            otp_field = oloc
-                            break
+                send_code_btn = page.locator("button:has-text('code' i), a:has-text('code' i), button:has-text('email me a code' i)")
+                if send_code_btn.count() > 0 and send_code_btn.first.is_visible(timeout=2000):
+                    txt_b = send_code_btn.first.inner_text().lower()
+                    if "phone" not in txt_b:
+                        send_code_btn.first.click()
+                        time.sleep(5)
+                        page.screenshot(path="04_after_email_submit.png")
+                        for osel in otp_selectors:
+                            oloc = page.locator(osel)
+                            if oloc.count() > 0 and oloc.first.is_visible(timeout=3000):
+                                otp_field = oloc
+                                break
             except Exception:
                 pass
 
         if not otp_field:
-            send_telegram_photo("04_after_email_submit.png", "⚠️ <b>[PERHATIAN]</b> Form kode OTP belum terdeteksi. Silakan amati screenshot bukti di atas apakah meminta password atau terkena verifikasi lain.")
-            print("OTP field not visible")
+            send_telegram_photo("04_after_email_submit.png", "⚠️ <b>[BELUM ADA FORM OTP]</b>\nForm kode OTP email belum terlihat di layar. Silakan cek bukti foto apakah OpenAI meminta password atau ada verifikasi captcha.")
+            print("No OTP field detected")
             return
 
-        send_telegram_photo("04_after_email_submit.png", "🔑 <b>[FORM OTP DITEMUKAN!]</b>\nOpenAI telah mengirimkan kode OTP ke email Tuan Ciro. Silakan balas chat ini dengan angka OTP-nya!")
+        send_telegram_photo("04_after_email_submit.png", "🔑 <b>[KODE OTP RESMI TERBUKA!]</b>\nOpenAI telah mengirimkan kode verifikasi ke email Tuan Ciro. Silakan balas chat ini dengan angka OTP-nya!")
 
         otp_code = wait_for_telegram_otp(timeout_sec=180)
         if not otp_code:
@@ -309,7 +342,7 @@ def main():
             return
 
         print(f"Memasukkan OTP: {otp_code}")
-        send_telegram_msg(f"✍️ <b>Memasukkan OTP {otp_code}...</b>")
+        send_telegram_msg(f"✍️ <b>Memasukkan OTP {otp_code} ke form browser...</b>")
 
         if otp_field.count() >= len(otp_code):
             for i, char in enumerate(otp_code):
@@ -322,6 +355,7 @@ def main():
         page.keyboard.press("Enter")
         time.sleep(10)
 
+        # Step 5: Validasi Hasil Akhir (Strict Anti-Halu)
         page.screenshot(path="05_final_status.png")
 
         final_ok = False
