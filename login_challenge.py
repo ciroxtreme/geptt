@@ -399,42 +399,62 @@ def main():
         time.sleep(10)
         wait_and_solve_cloudflare(page, max_wait_sec=20)
 
-        # Step 4.5: Tangani Konfirmasi Umur / Onboarding ("Let's confirm your age")
+        # Step 4.5: Tangani Konfirmasi Umur / Onboarding ("How old are you?" / "confirm your age")
         time.sleep(3)
-        try:
-            body_text = page.locator("body").inner_text().lower()
-            if "confirm your age" in body_text or "full name" in body_text or "birthday" in body_text:
-                print("Terdeteksi formulir konfirmasi umur/profil OpenAI!")
-                send_telegram("📝 <b>Mengisi formulir konfirmasi profil/umur OpenAI...</b>")
+        for attempt in range(3):
+            try:
+                body_text = page.locator("body").inner_text().lower()
+                if "how old are you" in body_text or "confirm your age" in body_text or "enter a valid age" in body_text or "birthday" in body_text:
+                    print(f"Terdeteksi formulir umur/profil OpenAI (attempt {attempt+1})!")
+                    send_telegram("📝 <b>Mengisi formulir konfirmasi umur (25) & profil OpenAI...</b>")
 
-                # Cek input nama jika kosong
-                name_input = page.locator("input[placeholder*='name' i], input[name*='name' i], input[aria-label*='name' i]").first
-                if name_input.is_visible(timeout=2000):
-                    val = name_input.input_value()
-                    if not val:
-                        name_input.fill("Ciro")
-                        time.sleep(0.5)
+                    # 1. Pastikan nama terisi
+                    name_inputs = page.locator("input[name*='name' i], input[id*='name' i], input[aria-label*='name' i]")
+                    if name_inputs.count() > 0 and name_inputs.first.is_visible(timeout=1000):
+                        if not name_inputs.first.input_value():
+                            name_inputs.first.fill("Ciro")
+                            time.sleep(0.3)
 
-                # Isi tanggal lahir dewasa (contoh: 05/12/1998)
-                bday_inputs = page.locator("input[placeholder*='birth' i], input[name*='birth' i], input[aria-label*='birth' i], input[type='text']")
-                for i in range(bday_inputs.count()):
-                    inp = bday_inputs.nth(i)
-                    try:
-                        val = inp.input_value()
-                        if "2026" in val or "yyyy" in val.lower() or not val:
-                            inp.click()
-                            inp.fill("05/12/1998")
-                            time.sleep(0.5)
-                            break
-                    except Exception:
-                        pass
-                cont_btn = page.locator("button:has-text('Continue'), button:has-text('Lanjutkan')").first
-                if cont_btn.is_visible(timeout=3000):
-                    cont_btn.click()
-                    time.sleep(6)
-                    wait_and_solve_cloudflare(page, max_wait_sec=15)
-        except Exception as e:
-            print(f"Age confirm handler notice: {e}")
+                    # 2. Tangani input Age (angka umur misal 25) atau Birthday
+                    # Cari semua input text/number yang terlihat
+                    all_inputs = page.locator("input")
+                    for i in range(all_inputs.count()):
+                        inp = all_inputs.nth(i)
+                        try:
+                            if not inp.is_visible(timeout=500):
+                                continue
+                            placeholder = (inp.get_attribute("placeholder") or "").lower()
+                            name_attr = (inp.get_attribute("name") or "").lower()
+                            aria_label = (inp.get_attribute("aria-label") or "").lower()
+                            val = inp.input_value()
+
+                            # Jika field adalah age / umur
+                            if "age" in placeholder or "age" in name_attr or "age" in aria_label:
+                                inp.click()
+                                inp.fill("25")
+                                time.sleep(0.3)
+                            elif "birth" in placeholder or "birth" in name_attr or "birth" in aria_label:
+                                inp.click()
+                                inp.fill("05/12/1998")
+                                time.sleep(0.3)
+                            elif not val and "name" not in name_attr and "name" not in placeholder:
+                                # Input kosong kedua setelah name biasanya adalah Age
+                                inp.click()
+                                inp.fill("25")
+                                time.sleep(0.3)
+                        except Exception as ex:
+                            pass
+
+                    # 3. Klik Continue
+                    cont_btn = page.locator("button:has-text('Continue'), button:has-text('Lanjutkan')").first
+                    if cont_btn.is_visible(timeout=2000):
+                        cont_btn.click()
+                        time.sleep(6)
+                        wait_and_solve_cloudflare(page, max_wait_sec=15)
+                else:
+                    break
+            except Exception as e:
+                print(f"Age confirm handler notice: {e}")
 
         # Step 5: Validasi Dashboard
         page.screenshot(path="05_final_status.png")
