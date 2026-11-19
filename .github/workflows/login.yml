@@ -1,4 +1,4 @@
-name: ChatGPT Login Challenge & Relay (Playwright Stealth)
+name: ChatGPT Login Challenge & Relay (Camoufox Stealth & Cloudflare WARP)
 
 on:
   schedule:
@@ -16,24 +16,64 @@ on:
 
 jobs:
   run-challenge:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
 
+      - name: Install & Setup Official Cloudflare WARP SOCKS5 Tunnel
+        run: |
+          echo "📥 Memasang Cloudflare WARP client resmi (ubuntu-22.04 jammy)..."
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends xvfb curl gpg cloudflare-warp
+
+          sudo systemctl start warp-svc
+          sleep 2
+
+          warp-cli --accept-tos registration new || warp-cli --accept-tos register || true
+          warp-cli --accept-tos mode proxy || true
+          warp-cli --accept-tos proxy port 40000 || true
+          warp-cli --accept-tos connect || true
+
+          sleep 3
+          echo "✅ Status WARP:"
+          warp-cli --accept-tos status || true
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Download Pre-Cached Camoufox Browser from xtt
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          pip install playwright playwright-stealth
-          python -m playwright install --with-deps chromium
+          echo "📥 Menarik binary Camoufox browser dari runner repo ciroxtreme/xtt..."
+          mkdir -p ~/.cache/camoufox
+          # Tarik cache dari GitHub API via gh
+          CACHE_URL=$(gh api /repos/ciroxtreme/xtt/actions/caches -q '.actions_caches[] | select(.key=="Linux-camoufox-browser-v1") | .id' 2>/dev/null || true)
+          echo "Cache ID: $CACHE_URL"
 
-      - name: Run Login & Relay Engine with Playwright
+      - name: Cache Camoufox Browser
+        id: camoufox-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/camoufox
+          key: ${{ runner.os }}-camoufox-browser-v1
+
+      - name: Fast Setup Python Dependencies
+        run: |
+          pip install "camoufox[geoip]" requests
+          if [ ! -d ~/.cache/camoufox ] || [ -z "$(ls -A ~/.cache/camoufox 2>/dev/null)" ]; then
+            camoufox fetch || true
+          fi
+
+      - name: Run Login & Relay Engine with Camoufox
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -41,7 +81,7 @@ jobs:
           PROMPT_ASK: ${{ github.event.inputs.prompt || '' }}
           PYTHONUNBUFFERED: "1"
         run: |
-          python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
+          xvfb-run -a python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
 
       - name: Commit Updated Session If Changed
         env:
