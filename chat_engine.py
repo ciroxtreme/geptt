@@ -99,10 +99,37 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
         time.sleep(3)
         page.screenshot(path="06_answer_view.png")
 
-        # Ambil bubble jawaban terakhir
-        articles = page.locator("[data-message-author-role='assistant'], article, div.markdown, [data-testid*='conversation-turn' i], div[class*='agent-turn' i], div.text-base")
-        if articles.count() > 0:
-            last_ans = articles.last.inner_text().strip()
+        # Ekstraksi teks jawaban ChatGPT yang akurat di UI 2026:
+        last_ans = ""
+        # 1. Coba locator markdown atau assistant message
+        candidates = page.locator("[data-message-author-role='assistant'], .markdown, [class*='markdown'], article")
+        for i in range(candidates.count() - 1, -1, -1):
+            t = candidates.nth(i).inner_text().strip()
+            if t and prompt_text not in t and len(t) > 10:
+                last_ans = t
+                break
+
+        # 2. Fallback via evaluate JS untuk mengambil turn assistant
+        if not last_ans:
+            try:
+                js_extract = '''() => {
+                    const turns = Array.from(document.querySelectorAll("[data-message-author-role='assistant'], div[data-testid*='conversation-turn'], article"));
+                    if (turns.length > 0) {
+                        return turns[turns.length - 1].innerText;
+                    }
+                    const mds = Array.from(document.querySelectorAll(".markdown, p"));
+                    if (mds.length > 0) {
+                        return mds.map(e => e.innerText).join('\n');
+                    }
+                    return "";
+                }'''
+                res = page.evaluate(js_extract)
+                if res and res.strip():
+                    last_ans = res.strip()
+            except Exception as e:
+                print(f"JS evaluate extract notice: {e}")
+
+        if last_ans:
             print("==================== [HASIL JAWABAN CHATGPT] ====================")
             print(last_ans)
             print("==================================================================")
