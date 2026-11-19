@@ -24,28 +24,14 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
 
-      - name: Cache Cloudflare WARP Client
-        id: cache-warp
-        uses: actions/cache@v4
-        with:
-          path: /tmp/warp-cache
-          key: ${{ runner.os }}-warp-deb-v2
-
       - name: Install & Setup Official Cloudflare WARP SOCKS5 Tunnel
         run: |
           echo "📥 Memasang Cloudflare WARP client resmi..."
           export DEBIAN_FRONTEND=noninteractive
-          mkdir -p /tmp/warp-cache
-          if [ ! -f /tmp/warp-cache/warp.deb ]; then
-            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-            sudo apt-get update -o Acquire::Retries=3 -y
-            sudo apt-get download cloudflare-warp
-            cp cloudflare-warp*.deb /tmp/warp-cache/warp.deb
-          fi
-
-          sudo apt-get install -y --no-install-recommends xvfb
-          sudo dpkg -i /tmp/warp-cache/warp.deb || sudo apt-get install -fy --no-install-recommends
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends xvfb cloudflare-warp
 
           sudo systemctl start warp-svc
           sleep 1
