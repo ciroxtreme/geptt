@@ -4,7 +4,8 @@ import time
 import json
 import urllib.request
 import urllib.parse
-from camoufox.sync_api import Camoufox
+from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -60,7 +61,6 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
     start_time = time.time()
     last_update_id = 0
     
-    # Dapatkan offset update id terakhir agar pesan lama tidak terbaca
     try:
         init_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
         init_req = urllib.request.urlopen(init_url, timeout=10)
@@ -81,13 +81,11 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
                 sender = str(msg.get("chat", {}).get("id"))
                 if sender == str(TELEGRAM_CHAT_ID):
                     text = msg.get("text", "").strip()
-                    # Bersihkan spasi atau teks pengantar jika Tuan Ciro ketik angka OTP
                     import re
                     digits = re.findall(r"\b\d{6}\b", text)
                     if digits:
                         send_telegram_msg(f"🎯 <b>[OTP DITERIMA!]</b> Kode {digits[0]} berhasil ditangkap!")
                         return digits[0]
-                    # Atau jika dikirim angka saja
                     pure_digits = re.sub(r"\D", "", text)
                     if len(pure_digits) >= 6:
                         code = pure_digits[:6]
@@ -102,7 +100,7 @@ def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
 
 def main():
     print("=== START CHATGPT LOGIN CHALLENGE & RELAY ===")
-    send_telegram_msg(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Camoufox Stealth Browser menuju ChatGPT...")
+    send_telegram_msg(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Stealth Chromium Browser menuju ChatGPT...")
 
     session_file = "session_chatgpt.json"
     session_loaded = False
@@ -118,14 +116,23 @@ def main():
         except Exception as e:
             print(f"Failed to load session: {e}")
 
-    with Camoufox(
-        headless=True,
-        geoip=True,
-        enable_cache=True,
-        humanize=True,
-        screen={"width": 1280, "height": 900}
-    ) as browser:
-        context = browser.new_context()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-infobars",
+                "--window-size=1280,900"
+            ]
+        )
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="en-US"
+        )
+        
         if session_loaded and initial_cookies:
             try:
                 context.add_cookies(initial_cookies)
@@ -134,6 +141,7 @@ def main():
                 print(f"Inject cookie error: {e}")
 
         page = context.new_page()
+        stealth_sync(page)
 
         # Step 1: Kunjungi ChatGPT
         page.goto("https://chatgpt.com/", timeout=45000, wait_until="load")
@@ -142,7 +150,7 @@ def main():
         page.screenshot(path="01_chatgpt_home.png")
         send_telegram_photo("01_chatgpt_home.png", "📸 <b>[TAHAP 1/5] Halaman Utama ChatGPT</b>\nStatus awal saat browser terbuka.")
 
-        # Cek apakah sudah login (misal dari cookies yang sudah tersimpan)
+        # Cek apakah sudah login
         is_logged_in = False
         try:
             composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
@@ -183,7 +191,6 @@ def main():
             login_btn.click()
             time.sleep(6)
         else:
-            # Langsung goto auth/login
             page.goto("https://chatgpt.com/auth/login", timeout=30000, wait_until="load")
             time.sleep(5)
 
@@ -208,7 +215,6 @@ def main():
                 pass
 
         if not email_input:
-            # Kadang ada tombol "Continue with email" atau serupa
             try:
                 cont_email = page.locator("button:has-text('email' i)")
                 if cont_email.count() > 0 and cont_email.first.is_visible(timeout=3000):
@@ -277,7 +283,6 @@ def main():
                 pass
 
         if not otp_field:
-            # Periksa apakah ada tombol 'Send code' / 'Email me a code'
             try:
                 send_code_btn = page.locator("button:has-text('code' i), a:has-text('code' i), button:has-text('login code' i)")
                 if send_code_btn.count() > 0 and send_code_btn.first.is_visible(timeout=3000):
@@ -299,7 +304,6 @@ def main():
 
         send_telegram_photo("04_after_email_submit.png", "🔑 <b>[FORM OTP DITEMUKAN!]</b>\nOpenAI telah mengirimkan kode OTP ke email Tuan Ciro. Silakan balas chat ini dengan angka OTP-nya!")
 
-        # Tunggu OTP dari chat Telegram
         otp_code = wait_for_telegram_otp(timeout_sec=180)
         if not otp_code:
             print("No OTP received, exiting.")
@@ -319,10 +323,8 @@ def main():
         page.keyboard.press("Enter")
         time.sleep(10)
 
-        # Step 5: Verifikasi Hasil Akhir
         page.screenshot(path="05_final_status.png")
 
-        # Cek apakah dashboard chat aktif
         final_ok = False
         try:
             final_composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
@@ -331,7 +333,7 @@ def main():
         except Exception:
             pass
 
-        if final_ok or "chatgpt.com" in page.url and "/auth/" not in page.url:
+        if final_ok or ("chatgpt.com" in page.url and "/auth/" not in page.url):
             send_telegram_photo("05_final_status.png", "🎉🎉 <b>[LOGIN SUKSES RESMI & TERBUKTI!]</b>\nBrowser telah berhasil masuk ke dashboard ChatGPT!")
             cookies = context.cookies()
             with open(session_file, "w") as f:

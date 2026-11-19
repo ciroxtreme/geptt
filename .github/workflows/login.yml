@@ -1,8 +1,7 @@
-name: ChatGPT Login Challenge & Relay (Camoufox Stealth)
+name: ChatGPT Login Challenge & Relay (Playwright Stealth)
 
 on:
   schedule:
-    # Auto Keep-Alive: Ping ChatGPT tiap 6 jam sekali agar cookie selalu segar
     - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
@@ -29,22 +28,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache Camoufox Browser
-        id: camoufox-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/camoufox
-          key: ${{ runner.os }}-camoufox-browser-v1
-
       - name: Install dependencies
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-          pip install "camoufox[geoip]"
-          camoufox fetch
+          pip install playwright playwright-stealth
+          python -m playwright install --with-deps chromium
 
-      - name: Run Login & Relay Engine with Camoufox
+      - name: Run Login & Relay Engine with Playwright
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -52,7 +41,7 @@ jobs:
           PROMPT_ASK: ${{ github.event.inputs.prompt || '' }}
           PYTHONUNBUFFERED: "1"
         run: |
-          xvfb-run -a python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
+          python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
 
       - name: Commit Updated Session If Changed
         env:
