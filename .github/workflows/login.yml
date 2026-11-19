@@ -17,31 +17,45 @@ on:
 jobs:
   run-challenge:
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
 
+      - name: Cache Cloudflare WARP Client
+        id: cache-warp
+        uses: actions/cache@v4
+        with:
+          path: /tmp/warp-cache
+          key: ${{ runner.os }}-warp-deb-v2
+
       - name: Install & Setup Official Cloudflare WARP SOCKS5 Tunnel
         run: |
           echo "📥 Memasang Cloudflare WARP client resmi..."
           export DEBIAN_FRONTEND=noninteractive
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          sudo apt-get update -o Acquire::Retries=3 -y
-          sudo apt-get install -y --no-install-recommends xvfb curl gpg cloudflare-warp
+          mkdir -p /tmp/warp-cache
+          if [ ! -f /tmp/warp-cache/warp.deb ]; then
+            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+            sudo apt-get update -o Acquire::Retries=3 -y
+            sudo apt-get download cloudflare-warp
+            cp cloudflare-warp*.deb /tmp/warp-cache/warp.deb
+          fi
+
+          sudo apt-get install -y --no-install-recommends xvfb
+          sudo dpkg -i /tmp/warp-cache/warp.deb || sudo apt-get install -fy --no-install-recommends
 
           sudo systemctl start warp-svc
-          sleep 2
+          sleep 1
 
           warp-cli --accept-tos registration new || warp-cli --accept-tos register || true
           warp-cli --accept-tos mode proxy || true
           warp-cli --accept-tos proxy port 40000 || true
           warp-cli --accept-tos connect || true
 
-          sleep 3
+          sleep 2
           echo "✅ Status WARP:"
           warp-cli --accept-tos status || true
 
@@ -49,11 +63,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+
+      - name: Cache Playwright Browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-v1
 
       - name: Fast Setup Playwright & Dependencies
         run: |
           pip install playwright playwright-stealth requests
-          playwright install chromium --with-deps
+          if [ ! -d ~/.cache/ms-playwright ] || [ -z "$(ls -A ~/.cache/ms-playwright 2>/dev/null)" ]; then
+            playwright install chromium --with-deps
+          fi
 
       - name: Run Login & Relay Engine with Playwright
         env:

@@ -251,7 +251,7 @@ def main():
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
                 send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
             else:
-                send_telegram("✨ <i>Tidak ada prompt yang diberikan. Sesi siap digunakan kapan saja via <code>gpt-ask "pertanyaan"</code>.</i>")
+                send_telegram("✨ <i>Tidak ada prompt yang diberikan. Sesi siap digunakan kapan saja via <code>gpt-ask \"pertanyaan\"</code>.</i>")
             browser.close()
             return
 
