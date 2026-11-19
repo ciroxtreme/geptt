@@ -20,11 +20,47 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
     dismiss_onboarding_dialogs(page)
 
     try:
-        composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i], div[contenteditable='true']").first
-        composer.wait_for(state="visible", timeout=15000)
+        # Cari input prompt box (UI 2026: '+ Ask ChatGPT' div contenteditable / textarea / prompt-textarea)
+        composer = None
+        selectors = [
+            "div[contenteditable='true']",
+            "#prompt-textarea",
+            "textarea[placeholder*='Ask' i]",
+            "textarea[placeholder*='Message' i]",
+            "div[role='textbox']",
+            "[data-placeholder*='Ask' i]"
+        ]
+        for s in selectors:
+            try:
+                loc = page.locator(s)
+                if loc.count() > 0 and loc.first.is_visible(timeout=3000):
+                    composer = loc.first
+                    break
+            except Exception:
+                pass
+
+        if not composer:
+            # Klik pada area '+ Ask ChatGPT' jika masih tertutup
+            try:
+                ask_placeholder = page.locator("text='Ask ChatGPT', text='Where should we begin'").first
+                if ask_placeholder.is_visible(timeout=2000):
+                    ask_placeholder.click()
+                    time.sleep(1)
+                    composer = page.locator("div[contenteditable='true'], #prompt-textarea, textarea").first
+            except Exception:
+                pass
+
+        if not composer:
+            page.screenshot(path="err_no_composer.png")
+            return "Gagal menemukan kolom input chat prompt di dashboard."
+
         composer.click()
-        time.sleep(1)
-        composer.fill(prompt_text)
+        time.sleep(0.5)
+        # Gunakan type / fill human-like
+        try:
+            composer.fill(prompt_text)
+        except Exception:
+            page.keyboard.type(prompt_text, delay=20)
         time.sleep(1)
 
         # Klik tombol kirim atau Enter

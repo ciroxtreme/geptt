@@ -217,36 +217,41 @@ def main():
         page.screenshot(path="01_chatgpt_home.png")
         send_telegram_photo("01_chatgpt_home.png", "📸 <b>[TAHAP 1/5] Halaman Utama ChatGPT</b>\nStatus awal saat browser terbuka via WARP.")
 
-        # Cek apakah sudah login
+        # Deteksi Dashboard ChatGPT (UI 2026: 'Where should we begin?', 'What's on your mind', div[contenteditable], #prompt-textarea, profil Ciro)
         is_logged_in = False
-        try:
-            composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
-            if composer.count() > 0 and composer.first.is_visible(timeout=5000):
-                is_logged_in = True
-        except Exception:
-            pass
-
-        # Tutup dialog modal onboarding jika ada (seperti You're all set)
         try:
             from chat_engine import dismiss_onboarding_dialogs
             dismiss_onboarding_dialogs(page)
         except Exception:
             pass
 
-        # Cek ulang setelah dismiss modal
+        time.sleep(2)
         try:
-            composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
-            if composer.count() > 0 and composer.first.is_visible(timeout=5000):
+            body_text = (page.locator("body").inner_text() or "").lower()
+            composer = page.locator("#prompt-textarea, div[contenteditable='true'], textarea, [placeholder*='Ask' i], [placeholder*='Message' i]")
+            
+            # Jika ada teks dashboard ChatGPT khas pengguna login atau ada prompt box
+            if (
+                "where should we begin" in body_text or
+                "what's on your mind" in body_text or
+                "upgrade" in body_text or
+                "new chat" in body_text or
+                (composer.count() > 0 and composer.first.is_visible(timeout=3000))
+            ) and "log in" not in body_text and "sign up" not in body_text:
                 is_logged_in = True
-        except Exception:
-            pass
+            elif ("where should we begin" in body_text or "what's on your mind" in body_text):
+                is_logged_in = True
+        except Exception as e:
+            print(f"Login detector notice: {e}")
 
         if is_logged_in:
-            send_telegram("🎉 <b>Sesi Aktif Ditemukan!</b> Sudah langsung berada di dashboard chat.")
+            send_telegram("🎉 <b>Sesi Aktif Ditemukan!</b> Browser sudah berada di dashboard ChatGPT.")
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
                 send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+            else:
+                send_telegram("✨ <i>Tidak ada prompt yang diberikan. Sesi siap digunakan kapan saja via <code>gpt-ask "pertanyaan"</code>.</i>")
             browser.close()
             return
 
