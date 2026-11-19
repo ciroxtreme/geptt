@@ -1,8 +1,24 @@
 import time
 import os
 
+def dismiss_onboarding_dialogs(page):
+    """Menutup modal atau tombol Continue seperti 'You\'re all set', 'Stay logged in', dsb."""
+    for _ in range(3):
+        try:
+            body = (page.locator("body").inner_text() or "").lower()
+            if "you're all set" in body or "stay logged in" in body or "welcome" in body or "continue" in body:
+                btns = page.locator("button:has-text('Continue'), button:has-text('Lanjutkan'), button:has-text('Done'), button:has-text('Selesai'), button:has-text('Okay'), button:has-text('Got it')")
+                if btns.count() > 0 and btns.first.is_visible(timeout=1500):
+                    print("Dismissing onboarding modal: Clicking Continue...")
+                    btns.first.click()
+                    time.sleep(2)
+        except Exception:
+            pass
+
 def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
     print(f"Sending prompt to ChatGPT: {prompt_text}")
+    dismiss_onboarding_dialogs(page)
+
     try:
         composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i], div[contenteditable='true']").first
         composer.wait_for(state="visible", timeout=15000)

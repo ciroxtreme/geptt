@@ -226,6 +226,21 @@ def main():
         except Exception:
             pass
 
+        # Tutup dialog modal onboarding jika ada (seperti You're all set)
+        try:
+            from chat_engine import dismiss_onboarding_dialogs
+            dismiss_onboarding_dialogs(page)
+        except Exception:
+            pass
+
+        # Cek ulang setelah dismiss modal
+        try:
+            composer = page.locator("#prompt-textarea, textarea[placeholder*='Message' i], textarea[placeholder*='Kirim pesan' i]")
+            if composer.count() > 0 and composer.first.is_visible(timeout=5000):
+                is_logged_in = True
+        except Exception:
+            pass
+
         if is_logged_in:
             send_telegram("🎉 <b>Sesi Aktif Ditemukan!</b> Sudah langsung berada di dashboard chat.")
             if PROMPT_ASK:
