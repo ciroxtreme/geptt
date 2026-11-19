@@ -100,11 +100,15 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
         page.screenshot(path="06_answer_view.png")
 
         # Ambil bubble jawaban terakhir
-        articles = page.locator("[data-message-author-role='assistant'], article, div.markdown, [data-testid*='conversation-turn' i], div[class*='agent-turn' i]")
+        articles = page.locator("[data-message-author-role='assistant'], article, div.markdown, [data-testid*='conversation-turn' i], div[class*='agent-turn' i], div.text-base")
         if articles.count() > 0:
-            last_ans = articles.last.inner_text()
-            return last_ans.strip()
+            last_ans = articles.last.inner_text().strip()
+            print("==================== [HASIL JAWABAN CHATGPT] ====================")
+            print(last_ans)
+            print("==================================================================")
+            return last_ans
 
+        print("[WARN] Bubble pesan teks tidak cocok dengan selector, jawaban ada di foto screenshot.")
         return "Jawaban berhasil di-generate (screenshot terlampir)."
     except Exception as e:
         print(f"Error in chat engine: {e}")
