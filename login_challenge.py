@@ -399,6 +399,43 @@ def main():
         time.sleep(10)
         wait_and_solve_cloudflare(page, max_wait_sec=20)
 
+        # Step 4.5: Tangani Konfirmasi Umur / Onboarding ("Let's confirm your age")
+        time.sleep(3)
+        try:
+            body_text = page.locator("body").inner_text().lower()
+            if "confirm your age" in body_text or "full name" in body_text or "birthday" in body_text:
+                print("Terdeteksi formulir konfirmasi umur/profil OpenAI!")
+                send_telegram("📝 <b>Mengisi formulir konfirmasi profil/umur OpenAI...</b>")
+
+                # Cek input nama jika kosong
+                name_input = page.locator("input[placeholder*='name' i], input[name*='name' i], input[aria-label*='name' i]").first
+                if name_input.is_visible(timeout=2000):
+                    val = name_input.input_value()
+                    if not val:
+                        name_input.fill("Ciro")
+                        time.sleep(0.5)
+
+                # Isi tanggal lahir dewasa (contoh: 05/12/1998)
+                bday_inputs = page.locator("input[placeholder*='birth' i], input[name*='birth' i], input[aria-label*='birth' i], input[type='text']")
+                for i in range(bday_inputs.count()):
+                    inp = bday_inputs.nth(i)
+                    try:
+                        val = inp.input_value()
+                        if "2026" in val or "yyyy" in val.lower() or not val:
+                            inp.click()
+                            inp.fill("05/12/1998")
+                            time.sleep(0.5)
+                            break
+                    except Exception:
+                        pass
+                cont_btn = page.locator("button:has-text('Continue'), button:has-text('Lanjutkan')").first
+                if cont_btn.is_visible(timeout=3000):
+                    cont_btn.click()
+                    time.sleep(6)
+                    wait_and_solve_cloudflare(page, max_wait_sec=15)
+        except Exception as e:
+            print(f"Age confirm handler notice: {e}")
+
         # Step 5: Validasi Dashboard
         page.screenshot(path="05_final_status.png")
 
