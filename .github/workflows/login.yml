@@ -1,0 +1,71 @@
+name: ChatGPT Login Challenge & Relay (Camoufox Stealth)
+
+on:
+  schedule:
+    # Auto Keep-Alive: Ping ChatGPT tiap 6 jam sekali agar cookie selalu segar
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      email:
+        description: "Email target untuk login"
+        required: true
+        default: "tuanciroxtreme@gmail.com"
+      prompt:
+        description: "Pertanyaan opsional untuk ChatGPT"
+        required: false
+        default: ""
+
+jobs:
+  run-challenge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Camoufox Browser
+        id: camoufox-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/camoufox
+          key: ${{ runner.os }}-camoufox-browser-v1
+
+      - name: Install dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          pip install "camoufox[geoip]"
+          camoufox fetch
+
+      - name: Run Login & Relay Engine with Camoufox
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TARGET_EMAIL: ${{ github.event.inputs.email || 'tuanciroxtreme@gmail.com' }}
+          PROMPT_ASK: ${{ github.event.inputs.prompt || '' }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          xvfb-run -a python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
+
+      - name: Commit Updated Session If Changed
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          git config user.name "Ciro Session Bot"
+          git config user.email "ciro@automated.local"
+          if [ -f session_chatgpt.json ]; then
+            git add session_chatgpt.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Auto-persist session_chatgpt.json [skip ci]"
+              git push origin main
+            else
+              echo "No session changes to commit."
+            fi
+          fi
