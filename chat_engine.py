@@ -112,18 +112,17 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
         # 2. Fallback via evaluate JS untuk mengambil turn assistant
         if not last_ans:
             try:
-                js_extract = '''() => {
-                    const turns = Array.from(document.querySelectorAll("[data-message-author-role='assistant'], div[data-testid*='conversation-turn'], article"));
-                    if (turns.length > 0) {
+                res = page.evaluate('''() => {
+                    const turns = document.querySelectorAll("[data-message-author-role='assistant'], article, div[data-testid*='conversation-turn']");
+                    if (turns && turns.length > 0) {
                         return turns[turns.length - 1].innerText;
                     }
-                    const mds = Array.from(document.querySelectorAll(".markdown, p"));
-                    if (mds.length > 0) {
-                        return mds.map(e => e.innerText).join('\n');
+                    const ps = document.querySelectorAll('main p');
+                    if (ps && ps.length > 0) {
+                        return Array.from(ps).map(p => p.innerText).join('\n');
                     }
-                    return "";
-                }'''
-                res = page.evaluate(js_extract)
+                    return '';
+                }''')
                 if res and res.strip():
                     last_ans = res.strip()
             except Exception as e:
