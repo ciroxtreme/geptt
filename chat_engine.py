@@ -100,7 +100,7 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
         page.screenshot(path="06_answer_view.png")
 
         # Ambil bubble jawaban terakhir
-        articles = page.locator("[data-message-author-role='assistant'], article, div.markdown")
+        articles = page.locator("[data-message-author-role='assistant'], article, div.markdown, [data-testid*='conversation-turn' i], div[class*='agent-turn' i]")
         if articles.count() > 0:
             last_ans = articles.last.inner_text()
             return last_ans.strip()

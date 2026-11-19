@@ -249,7 +249,7 @@ def main():
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
-                send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+                send_telegram_photo("06_answer_view.png", f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
             else:
                 send_telegram("✨ <i>Tidak ada prompt yang diberikan. Sesi siap digunakan kapan saja via <code>gpt-ask \"pertanyaan\"</code>.</i>")
             browser.close()
@@ -497,7 +497,7 @@ def main():
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
-                send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+                send_telegram_photo("06_answer_view.png", f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
         else:
             send_telegram_photo("05_final_status.png", "❌ <b>[BELUM BERHASIL LOGIN]</b>\nSetelah memasukkan OTP, layar belum masuk ke dashboard ChatGPT. Lihat bukti foto di atas.")
 
