@@ -6,68 +6,58 @@ import socket
 import urllib.request
 import urllib.parse
 import requests
-from camoufox.sync_api import Camoufox
+from playwright.sync_api import sync_playwright
+from playwright_stealth import Stealth
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1936436999")
 TARGET_EMAIL = os.environ.get("TARGET_EMAIL", "tuanciroxtreme@gmail.com")
-PROMPT_ASK = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else os.environ.get("PROMPT_ASK", "")
+PROMPT_ASK = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PROMPT_ASK", "")
 
 def get_browser_proxy():
-    """Deteksi Cloudflare WARP SOCKS5 Tunnel pada 127.0.0.1:40000 (SOP repo xtt)"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(1)
+    """Cek apakah Cloudflare WARP proxy aktif di port 40000."""
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
         s.connect(("127.0.0.1", 40000))
         s.close()
         print("✅ Detected Cloudflare WARP SOCKS5 proxy on 127.0.0.1:40000")
         return {"server": "socks5://127.0.0.1:40000"}
     except Exception:
-        pass
-    return None
+        print("⚠️ WARP proxy on port 40000 not reachable, using direct network.")
+        return None
 
 def send_telegram(text: str):
-    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
-        print(f"[TG] {text}")
+    if not TELEGRAM_BOT_TOKEN:
+        print(f"[TELEGRAM SKIP]: {text}")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = urllib.parse.urlencode({
+    payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "HTML"
-    }).encode("utf-8")
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"})
-        urllib.request.urlopen(req, timeout=10)
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"[TG Error] {e}")
+        print(f"Telegram send error: {e}")
 
 def send_telegram_photo(photo_path: str, caption: str = ""):
-    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID) or not os.path.exists(photo_path):
+    if not TELEGRAM_BOT_TOKEN:
+        print(f"[TELEGRAM PHOTO SKIP]: {caption}")
+        return
+    if not os.path.exists(photo_path):
+        print(f"[PHOTO NOT FOUND]: {photo_path}")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-    
-    with open(photo_path, "rb") as f:
-        photo_bytes = f.read()
-
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="chat_id"\r\n\r\n'
-        f"{TELEGRAM_CHAT_ID}\r\n"
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="caption"\r\n\r\n'
-        f"{caption}\r\n"
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="photo"; filename="shot.png"\r\n'
-        f"Content-Type: image/png\r\n\r\n"
-    ).encode("utf-8") + photo_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
-
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
     try:
-        urllib.request.urlopen(req, timeout=15)
+        with open(photo_path, "rb") as f:
+            files = {"photo": f}
+            data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+            requests.post(url, data=data, files=files, timeout=30)
     except Exception as e:
-        print(f"[TG Photo Error] {e}")
+        print(f"Telegram photo send error: {e}")
 
 def wait_and_solve_cloudflare(page, max_wait_sec=25):
     """
@@ -78,24 +68,35 @@ def wait_and_solve_cloudflare(page, max_wait_sec=25):
     print("Mengecek proteksi Cloudflare...")
     for sec in range(1, max_wait_sec + 1):
         time.sleep(1)
-        title = (page.title() or "").lower()
+        title = ""
+        try:
+            title = (page.title() or "").lower()
+        except Exception:
+            pass
         body = ""
         try:
             body = (page.locator("body").inner_text() or "").lower()
         except Exception:
             pass
 
+        content = ""
+        try:
+            content = (page.content() or "").lower()
+        except Exception:
+            pass
+
         is_cf = (
             "just a moment" in title or
             "verify you are human" in body or
-            "challenges.cloudflare.com" in page.content().lower()
+            "challenges.cloudflare.com" in content or
+            "cf-turnstile" in content
         )
 
         if is_cf:
             print(f"[*] Terdeteksi Cloudflare Gate (detik ke-{sec}), mencari iframe checkbox...")
             try:
                 for frame in page.frames:
-                    if "challenges.cloudflare.com" in frame.url:
+                    if "challenges.cloudflare.com" in frame.url or "turnstile" in frame.url:
                         cb = frame.query_selector("input[type='checkbox'], #challenge-stage, .ctp-checkbox-label, div[id*='turnstile' i]")
                         if cb:
                             print("[*] Mengklik Turnstile checkbox secara natural...")
@@ -110,52 +111,57 @@ def wait_and_solve_cloudflare(page, max_wait_sec=25):
     return False
 
 def wait_for_telegram_otp(timeout_sec: int = 180) -> str:
-    send_telegram(f"⏳ <b>[STANDBY OTP]</b> Bot menunggu Tuan Ciro mengirimkan kode OTP di chat ini (Batas waktu: {timeout_sec} detik)...")
-    start_time = time.time()
-    last_update_id = 0
-    
-    try:
-        init_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-        init_req = urllib.request.urlopen(init_url, timeout=10)
-        init_data = json.loads(init_req.read().decode())
-        if init_data.get("result"):
-            last_update_id = init_data["result"][-1]["update_id"]
-    except Exception as e:
-        print(f"Notice init getUpdates: {e}")
+    """Menunggu Tuan Ciro mengirimkan kode angka OTP ke Telegram."""
+    if not TELEGRAM_BOT_TOKEN:
+        print("No telegram token, skipping OTP wait.")
+        return ""
 
+    print(f"[*] Menunggu balasan OTP dari Telegram Tuan Ciro (maksimal {timeout_sec} detik)...")
+    base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+
+    # Dapatkan offset update terakhir agar tidak membaca chat lawas
+    last_update_id = 0
+    try:
+        r = requests.get(base_url, timeout=10).json()
+        if r.get("ok") and r.get("result"):
+            last_update_id = r["result"][-1]["update_id"]
+    except Exception as e:
+        print(f"Initial getUpdates error: {e}")
+
+    start_time = time.time()
     while time.time() - start_time < timeout_sec:
+        time.sleep(3)
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=3"
-            req = urllib.request.urlopen(url, timeout=8)
-            data = json.loads(req.read().decode())
-            for upd in data.get("result", []):
-                last_update_id = upd["update_id"]
-                msg = upd.get("message", {})
-                sender = str(msg.get("chat", {}).get("id"))
-                if sender == str(TELEGRAM_CHAT_ID):
-                    text = msg.get("text", "").strip()
-                    import re
-                    digits = re.findall(r"\b\d{6}\b", text)
-                    if digits:
-                        send_telegram(f"🎯 <b>[OTP DITERIMA!]</b> Kode {digits[0]} berhasil ditangkap!")
-                        return digits[0]
-                    pure_digits = re.sub(r"\D", "", text)
-                    if len(pure_digits) >= 6:
-                        code = pure_digits[:6]
-                        send_telegram(f"🎯 <b>[OTP DITERIMA!]</b> Kode {code} berhasil ditangkap!")
-                        return code
-        except Exception:
-            time.sleep(3)
-        time.sleep(2)
-        
-    send_telegram("❌ <b>[TIMEOUT]</b> Waktu tunggu OTP habis.")
+            params = {"offset": last_update_id + 1, "timeout": 5}
+            r = requests.get(base_url, params=params, timeout=10).json()
+            if not r.get("ok"):
+                continue
+
+            for update in r.get("result", []):
+                last_update_id = max(last_update_id, update["update_id"])
+                msg = update.get("message", {})
+                chat_id = str(msg.get("chat", {}).get("id", ""))
+                text = (msg.get("text", "") or "").strip()
+
+                if chat_id == str(TELEGRAM_CHAT_ID) and text:
+                    digits = "".join([c for c in text if c.isdigit()])
+                    if len(digits) in [6, 8]:
+                        print(f"✅ OTP diterima dari Tuan Ciro: {digits}")
+                        send_telegram(f"👌 <b>Kode OTP Terdeteksi:</b> <code>{digits}</code>. Memasukkan ke halaman login...")
+                        return digits
+                    else:
+                        print(f"Pesan teks diterima tapi bukan 6/8 digit OTP: {text}")
+        except Exception as e:
+            print(f"Polling OTP notice: {e}")
+
+    send_telegram("⏱️ <b>Waktu tunggu OTP (3 menit) habis.</b> Tidak menerima kode verifikasi.")
     return ""
 
 def main():
-    print("=== START CHATGPT CAMOUFOX STEALTH & CLOUDFLARE WARP ENGINE ===")
+    print("=== START CHATGPT PLAYWRIGHT STEALTH & CLOUDFLARE WARP ENGINE ===")
     proxy_cfg = get_browser_proxy()
     proxy_label = "Cloudflare WARP SOCKS5 Tunnel (127.0.0.1:40000)" if proxy_cfg else "Direct Cloud IP"
-    send_telegram(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Camoufox Stealth Browser via <b>{proxy_label}</b>...")
+    send_telegram(f"🚀 <b>[TAHAP 1/5]</b> Menjalankan Playwright Chromium via <b>{proxy_label}</b>...")
 
     session_file = "session_chatgpt.json"
     session_loaded = False
@@ -171,17 +177,28 @@ def main():
         except Exception as e:
             print(f"Failed to load session: {e}")
 
-    launch_kwargs = {
-        "headless": True,
-        "geoip": True,
-        "humanize": True,
-        "screen": {"width": 1280, "height": 900}
-    }
-    if proxy_cfg:
-        launch_kwargs["proxy"] = proxy_cfg
+    with Stealth().use_sync(sync_playwright()) as p:
+        browser_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1280,900"
+        ]
 
-    with Camoufox(**launch_kwargs) as browser:
-        context = browser.new_context()
+        launch_kwargs = {
+            "headless": True,
+            "args": browser_args
+        }
+        if proxy_cfg:
+            launch_kwargs["proxy"] = proxy_cfg
+
+        browser = p.chromium.launch(**launch_kwargs)
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        )
+
         if session_loaded and initial_cookies:
             try:
                 context.add_cookies(initial_cookies)
@@ -192,10 +209,11 @@ def main():
         page = context.new_page()
 
         # Step 1: Buka ChatGPT
+        print("Membuka ChatGPT...")
         page.goto("https://chatgpt.com/", timeout=45000, wait_until="load")
         time.sleep(4)
         wait_and_solve_cloudflare(page, max_wait_sec=15)
-        
+
         page.screenshot(path="01_chatgpt_home.png")
         send_telegram_photo("01_chatgpt_home.png", "📸 <b>[TAHAP 1/5] Halaman Utama ChatGPT</b>\nStatus awal saat browser terbuka via WARP.")
 
@@ -214,6 +232,7 @@ def main():
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
                 send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+            browser.close()
             return
 
         # Step 2: Klik Log in
@@ -263,6 +282,7 @@ def main():
         if not email_input:
             page.screenshot(path="err_no_email_box.png")
             send_telegram_photo("err_no_email_box.png", "❌ <b>[GAGAL TAHAP 2]</b> Kolom email tidak ditemukan.")
+            browser.close()
             return
 
         print(f"Mengisi email: {TARGET_EMAIL}")
@@ -311,6 +331,7 @@ def main():
         page_text = page.locator("body").inner_text().lower()
         if "phone" in page_text and "code" not in page_text:
             send_telegram_photo("04_after_email_submit.png", "❌ <b>[STOP]</b> Halaman ternyata membuka form Phone Number. Berhenti jujur.")
+            browser.close()
             return
 
         otp_field = None
@@ -352,6 +373,7 @@ def main():
         if not otp_field:
             send_telegram_photo("04_after_email_submit.png", "⚠️ <b>[BELUM ADA FORM OTP]</b>\nSilakan periksa foto bukti di atas apakah OpenAI meminta password atau tantangan lain.")
             print("No OTP field detected")
+            browser.close()
             return
 
         send_telegram_photo("04_after_email_submit.png", "🔑 <b>[KODE OTP RESMI TERBUKA!]</b>\nOpenAI telah mengirimkan kode verifikasi ke email Tuan Ciro. Silakan balas chat ini dengan angka OTP-nya!")
@@ -359,6 +381,7 @@ def main():
         otp_code = wait_for_telegram_otp(timeout_sec=180)
         if not otp_code:
             print("No OTP received, exiting.")
+            browser.close()
             return
 
         print(f"Memasukkan OTP: {otp_code}")
@@ -400,6 +423,8 @@ def main():
                 send_telegram(f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
         else:
             send_telegram_photo("05_final_status.png", "❌ <b>[BELUM BERHASIL LOGIN]</b>\nSetelah memasukkan OTP, layar belum masuk ke dashboard ChatGPT. Lihat bukti foto di atas.")
+
+        browser.close()
 
 if __name__ == "__main__":
     main()

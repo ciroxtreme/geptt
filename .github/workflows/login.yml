@@ -1,4 +1,4 @@
-name: ChatGPT Login Challenge & Relay (Camoufox Stealth & Cloudflare WARP)
+name: ChatGPT Login Challenge & Relay (Playwright & Cloudflare WARP)
 
 on:
   schedule:
@@ -49,31 +49,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download Pre-Cached Camoufox Browser from xtt
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+      - name: Fast Setup Playwright & Dependencies
         run: |
-          echo "📥 Menarik binary Camoufox browser dari runner repo ciroxtreme/xtt..."
-          mkdir -p ~/.cache/camoufox
-          # Tarik cache dari GitHub API via gh
-          CACHE_URL=$(gh api /repos/ciroxtreme/xtt/actions/caches -q '.actions_caches[] | select(.key=="Linux-camoufox-browser-v1") | .id' 2>/dev/null || true)
-          echo "Cache ID: $CACHE_URL"
+          pip install playwright playwright-stealth requests
+          playwright install chromium --with-deps
 
-      - name: Cache Camoufox Browser
-        id: camoufox-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/camoufox
-          key: ${{ runner.os }}-camoufox-browser-v1
-
-      - name: Fast Setup Python Dependencies
-        run: |
-          pip install "camoufox[geoip]" requests
-          if [ ! -d ~/.cache/camoufox ] || [ -z "$(ls -A ~/.cache/camoufox 2>/dev/null)" ]; then
-            camoufox fetch || true
-          fi
-
-      - name: Run Login & Relay Engine with Camoufox
+      - name: Run Login & Relay Engine with Playwright
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
