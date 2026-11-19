@@ -99,34 +99,40 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
         time.sleep(3)
         page.screenshot(path="06_answer_view.png")
 
-        # Ekstraksi teks jawaban ChatGPT yang akurat di UI 2026:
+        # Ekstraksi teks jawaban ChatGPT yang akurat di UI 2026 murni Playwright API:
         last_ans = ""
-        # 1. Coba locator markdown atau assistant message
-        candidates = page.locator("[data-message-author-role='assistant'], .markdown, [class*='markdown'], article")
-        for i in range(candidates.count() - 1, -1, -1):
-            t = candidates.nth(i).inner_text().strip()
-            if t and prompt_text not in t and len(t) > 10:
-                last_ans = t
-                break
-
-        # 2. Fallback via evaluate JS untuk mengambil turn assistant
-        if not last_ans:
+        # 1. Ambil semua paragraf di dalam container pesan assistant / main
+        ps = page.locator("main p, [data-message-author-role='assistant'] p, div[data-testid*='conversation-turn'] p")
+        p_texts = []
+        for i in range(ps.count()):
             try:
-                res = page.evaluate('''() => {
-                    const turns = document.querySelectorAll("[data-message-author-role='assistant'], article, div[data-testid*='conversation-turn']");
-                    if (turns && turns.length > 0) {
-                        return turns[turns.length - 1].innerText;
-                    }
-                    const ps = document.querySelectorAll('main p');
-                    if (ps && ps.length > 0) {
-                        return Array.from(ps).map(p => p.innerText).join('\n');
-                    }
-                    return '';
-                }''')
-                if res and res.strip():
-                    last_ans = res.strip()
-            except Exception as e:
-                print(f"JS evaluate extract notice: {e}")
+                pt = ps.nth(i).inner_text().strip()
+                if pt and prompt_text not in pt:
+                    p_texts.append(pt)
+            except Exception:
+                pass
+
+        if p_texts:
+            last_ans = "\n\n".join(p_texts).strip()
+
+        # 2. Fallback jika list/bullet points (li)
+        if not last_ans or len(p_texts) <= 1:
+            lis = page.locator("main li, [data-message-author-role='assistant'] li")
+            if lis.count() > 0:
+                li_texts = [lis.nth(i).inner_text().strip() for i in range(lis.count()) if lis.nth(i).inner_text().strip()]
+                if li_texts:
+                    last_ans = last_ans + "\n" + "\n".join(["- " + x for x in li_texts]) if last_ans else "\n".join(["- " + x for x in li_texts])
+
+        # 3. Fallback: ambil inner_text dari turn assistant
+        if not last_ans:
+            turns = page.locator("[data-message-author-role='assistant'], article")
+            if turns.count() > 0:
+                try:
+                    raw_turn = turns.last.inner_text().strip()
+                    if raw_turn and prompt_text not in raw_turn:
+                        last_ans = raw_turn
+                except Exception:
+                    pass
 
         if last_ans:
             print("==================== [HASIL JAWABAN CHATGPT] ====================")
