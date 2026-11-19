@@ -28,10 +28,17 @@ jobs:
         run: |
           echo "📥 Memasang Cloudflare WARP client resmi..."
           export DEBIAN_FRONTEND=noninteractive
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends xvfb cloudflare-warp
+          # Download deb langsung dari repo Cloudflare tanpa apt update mirror lambat
+          curl -fsSL -o /tmp/warp.deb https://pkg.cloudflareclient.com/pool/jammy/main/c/cloudflare-warp/cloudflare-warp_2024.11.309.0_amd64.deb || curl -fsSL -o /tmp/warp.deb https://pkg.cloudflareclient.com/pool/jammy/main/c/cloudflare-warp/cloudflare-warp_2024.6.497.0_amd64.deb || true
+
+          if [ -f /tmp/warp.deb ] && [ $(stat -c%s /tmp/warp.deb) -gt 1000000 ]; then
+            sudo dpkg -i /tmp/warp.deb || true
+          else
+            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ jammy main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+            sudo apt-get update -y -o Dir::Etc::sourcelist="sources.list.d/cloudflare-client.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
+            sudo apt-get install -y --no-install-recommends cloudflare-warp
+          fi
 
           sudo systemctl start warp-svc
           sleep 1
