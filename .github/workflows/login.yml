@@ -94,6 +94,7 @@ jobs:
           xvfb-run -a python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
 
       - name: Save ChatGPT session to secret
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
