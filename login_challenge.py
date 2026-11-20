@@ -246,6 +246,15 @@ def main():
 
         if is_logged_in:
             send_telegram("🎉 <b>Sesi Aktif Ditemukan!</b> Browser sudah berada di dashboard ChatGPT.")
+            # KEEP-ALIVE (mirip qwtt): simpan ulang cookie yang fresh supaya
+            # session persisten — workflow save step akan mengangkatnya ke secret.
+            try:
+                fresh_cookies = context.cookies()
+                with open(session_file, "w") as f:
+                    json.dump(fresh_cookies, f, indent=2)
+                print(f"[KEEP-ALIVE] {len(fresh_cookies)} cookies disimpan ulang ke {session_file}")
+            except Exception as e:
+                print(f"[KEEP-ALIVE] gagal simpan cookie: {e}")
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
