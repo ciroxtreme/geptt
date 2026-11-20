@@ -24,6 +24,17 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
 
+      - name: Restore ChatGPT session from secret
+        env:
+          GPT_SESSION_JSON: ${{ secrets.GPT_SESSION_JSON }}
+        run: |
+          if [ -n "$GPT_SESSION_JSON" ]; then
+            printf '%s' "$GPT_SESSION_JSON" > session_chatgpt.json
+            echo "Session restored from secret."
+          else
+            echo "No GPT_SESSION_JSON secret yet; using repo session file if present."
+          fi
+
       - name: Install & Setup Official Cloudflare WARP SOCKS5 Tunnel
         run: |
           echo "📥 Memasang Cloudflare WARP client resmi..."
@@ -82,18 +93,14 @@ jobs:
         run: |
           xvfb-run -a python -u login_challenge.py "${{ github.event.inputs.prompt || '' }}"
 
-      - name: Commit Updated Session If Changed
+      - name: Save ChatGPT session to secret
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          git config user.name "Ciro Session Bot"
-          git config user.email "ciro@automated.local"
-          if [ -f session_chatgpt.json ]; then
-            git add session_chatgpt.json
-            if ! git diff --cached --quiet; then
-              git commit -m "Auto-persist session_chatgpt.json [skip ci]"
-              git push origin main
+            if [ -f session_chatgpt.json ] && [ -s session_chatgpt.json ]; then
+              gh secret set GPT_SESSION_JSON --repo ciroxtreme/geptt < session_chatgpt.json
+              echo "Session saved to secret."
             else
-              echo "No session changes to commit."
+              echo "No session file to save."
             fi
-          fi
+  
