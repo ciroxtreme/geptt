@@ -2,16 +2,25 @@ import time
 import os
 
 def dismiss_onboarding_dialogs(page):
-    """Menutup modal atau tombol Continue seperti 'You\'re all set', 'Stay logged in', dsb."""
-    for _ in range(3):
+    """Menutup modal atau tombol Continue seperti 'You're all set', 'Stay logged in', popover Radix memory, dsb."""
+    for _ in range(4):
         try:
-            body = (page.locator("body").inner_text() or "").lower()
-            if "you're all set" in body or "stay logged in" in body or "welcome" in body or "continue" in body:
-                btns = page.locator("button:has-text('Continue'), button:has-text('Lanjutkan'), button:has-text('Done'), button:has-text('Selesai'), button:has-text('Okay'), button:has-text('Got it')")
-                if btns.count() > 0 and btns.first.is_visible(timeout=1500):
-                    print("Dismissing onboarding modal: Clicking Continue...")
-                    btns.first.click()
-                    time.sleep(2)
+            # Tekan Escape untuk menutup popover aktif
+            page.keyboard.press("Escape")
+            
+            # Cari tombol dismiss atau close khusus popover / dialog Radix
+            close_btns = page.locator("button[aria-label*='Close' i], button[aria-label*='Tutup' i], button:has-text('Got it'), button:has-text('Okay'), button:has-text('Continue'), button:has-text('Lanjutkan'), button:has-text('Done')")
+            if close_btns.count() > 0:
+                for i in range(min(close_btns.count(), 3)):
+                    btn = close_btns.nth(i)
+                    if btn.is_visible(timeout=500):
+                        btn.click(force=True)
+                        time.sleep(0.5)
+            
+            # Hapus popover Radix lewat JS DOM langsung jika masih menghalangi
+            page.evaluate("""() => {
+                document.querySelectorAll('[id*="radix"], [data-radix-popper-content-wrapper]').forEach(el => el.remove());
+            }""")
         except Exception:
             pass
 
@@ -54,7 +63,10 @@ def send_prompt_and_extract_answer(page, prompt_text: str) -> str:
             page.screenshot(path="err_no_composer.png")
             return "Gagal menemukan kolom input chat prompt di dashboard."
 
-        composer.click()
+        try:
+            composer.click(force=True)
+        except Exception:
+            pass
         time.sleep(0.5)
         # Gunakan type / fill human-like
         try:
