@@ -39,7 +39,9 @@ def send_telegram(text: str):
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        r = requests.post(url, json=payload, timeout=10)
+        if not r.ok:
+            print(f"Telegram send HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         print(f"Telegram send error: {e}")
 
@@ -55,9 +57,77 @@ def send_telegram_photo(photo_path: str, caption: str = ""):
         with open(photo_path, "rb") as f:
             files = {"photo": f}
             data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
-            requests.post(url, data=data, files=files, timeout=30)
+            r = requests.post(url, data=data, files=files, timeout=30)
+            if not r.ok:
+                print(f"Telegram photo send HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         print(f"Telegram photo send error: {e}")
+
+def split_telegram_text(text: str, limit: int = 4000):
+    """Pecah teks panjang jadi chunk <= limit karakter, putus di batas
+    paragraf/baris/kata supaya tidak memotong kata di tengah."""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    rest = text
+    while len(rest) > limit:
+        cut = rest.rfind("\n\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind(" ", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(rest[:cut].strip())
+        rest = rest[cut:].strip()
+    if rest:
+        chunks.append(rest)
+    return [c for c in chunks if c]
+
+def _send_telegram_text_chunk(text: str, chunk_no: int, total: int):
+    """Kirim 1 chunk jawaban sebagai pesan teks (tanpa parse_mode supaya
+    karakter < > di jawaban tidak bikin Telegram nolak). Retry 429 max 3x."""
+    if not TELEGRAM_BOT_TOKEN:
+        print(f"[TELEGRAM SKIP]: chunk {chunk_no}/{total}")
+        return False
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    for attempt in range(1, 4):
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+            if r.status_code == 429:
+                wait = 2.0
+                try:
+                    wait = float(r.json().get("parameters", {}).get("retry_after", 2))
+                except Exception:
+                    pass
+                print(f"[TG] chunk {chunk_no}/{total}: 429 (coba {attempt}/3), tunggu {wait}s lalu retry")
+                time.sleep(wait)
+                continue
+            if not r.ok:
+                print(f"[TG] chunk {chunk_no}/{total}: HTTP {r.status_code} {r.text[:200]}")
+                return False
+            return True
+        except Exception as e:
+            print(f"[TG Error] chunk {chunk_no}/{total}: {e}")
+            return False
+    print(f"[TG Error] chunk {chunk_no}/{total}: gagal setelah 3x retry (429)")
+    return False
+
+def send_telegram_answer(ans: str):
+    """Kirim jawaban (sepanjang apa pun) sebagai pesan teks terpecah,
+    dengan jeda 2 detik antar chunk. Jangan kirim jawaban panjang sebagai
+    caption foto: caption Telegram maks 1024 karakter dan penolakan 400-nya
+    dulu ditelen diam-diam (run #35)."""
+    if not ans:
+        return
+    chunks = split_telegram_text(ans)
+    for i, chunk in enumerate(chunks):
+        _send_telegram_text_chunk(chunk, i + 1, len(chunks))
+        if len(chunks) > 1 and i < len(chunks) - 1:
+            time.sleep(2.0)
+    if len(chunks) > 1:
+        print(f"[TG] Jawaban panjang dipecah jadi {len(chunks)} pesan (total {len(ans)} karakter)")
 
 def wait_and_solve_cloudflare(page, max_wait_sec=25):
     """
@@ -258,7 +328,8 @@ def main():
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
-                send_telegram_photo("06_answer_view.png", f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+                send_telegram_photo("06_answer_view.png", "✨ <b>[JAWABAN CHATGPT]</b>")
+                send_telegram_answer(ans)
             else:
                 send_telegram("✨ <i>Tidak ada prompt yang diberikan. Sesi siap digunakan kapan saja via <code>gpt-ask \"pertanyaan\"</code>.</i>")
             browser.close()
@@ -506,7 +577,8 @@ def main():
             if PROMPT_ASK:
                 from chat_engine import send_prompt_and_extract_answer
                 ans = send_prompt_and_extract_answer(page, PROMPT_ASK)
-                send_telegram_photo("06_answer_view.png", f"✨ <b>[JAWABAN CHATGPT]:</b>\n\n{ans}")
+                send_telegram_photo("06_answer_view.png", "✨ <b>[JAWABAN CHATGPT]</b>")
+                send_telegram_answer(ans)
         else:
             send_telegram_photo("05_final_status.png", "❌ <b>[BELUM BERHASIL LOGIN]</b>\nSetelah memasukkan OTP, layar belum masuk ke dashboard ChatGPT. Lihat bukti foto di atas.")
 
